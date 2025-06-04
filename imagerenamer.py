@@ -30,7 +30,7 @@ if uploaded_files and st.button("Generate & Download ZIP"):
     with zipfile.ZipFile(zip_buffer, "w") as zip_file:
         for i, uploaded_file in enumerate(uploaded_files):
             # Open and resize image
-            image = Image.open(uploaded_file).convert("RGB")
+            image = Image.open(uploaded_file).convert("RGBA")
             image.thumbnail((512, 512))
 
             # Generate caption

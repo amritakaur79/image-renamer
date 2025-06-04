@@ -19,11 +19,15 @@ uploaded_files = st.file_uploader("Upload image files", type=["png", "jpg", "jpe
 
 if uploaded_files and st.button("Generate & Download ZIP"):
     zip_buffer = io.BytesIO()
+    total_files = len(uploaded_files)
+    progress_bar = st.progress(0, text="Starting...")
+
     with zipfile.ZipFile(zip_buffer, "w") as zip_file:
-        for uploaded_file in uploaded_files:
+        for i, uploaded_file in enumerate(uploaded_files):
             image = Image.open(uploaded_file)
             if image.mode != "RGB":
                 image = image.convert("RGB")
+
             inputs = processor(images=image, return_tensors="pt").to(device)
             output = model.generate(**inputs)
             caption = processor.decode(output[0], skip_special_tokens=True).replace(" ", "_")
@@ -35,7 +39,14 @@ if uploaded_files and st.button("Generate & Download ZIP"):
             image.save(image_bytes, format=image.format or "PNG")
             zip_file.writestr(new_filename, image_bytes.getvalue())
 
+            # Update progress
+            progress = (i + 1) / total_files
+            progress_bar.progress(progress, text=f"Processing {i + 1} of {total_files} images...")
+
+    progress_bar.empty()  # Remove progress bar after completion
     zip_buffer.seek(0)
+
+    st.success("All files processed successfully!")
     st.download_button(
         label="📥 Download Renamed Images ZIP",
         data=zip_buffer,

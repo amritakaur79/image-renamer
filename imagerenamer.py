@@ -40,14 +40,17 @@ if uploaded_files and st.button("Generate & Download ZIP"):
             raw_caption = processor.decode(output[0], skip_special_tokens=True)
 
             # Remove filler words and format filename
+            # Remove filler words and format filename
             filtered_words = [
                 word for word in re.findall(r"\w+", raw_caption.lower())
                 if word not in STOPWORDS
             ]
             clean_caption = "_".join(filtered_words) or "image"
+            clean_caption = clean_caption[:20].rstrip("_")  # Trim to 20 characters
 
             ext = os.path.splitext(uploaded_file.name)[1]
             new_filename = f"{clean_caption}{ext}"
+
 
             # Save image in zip
             image_bytes = io.BytesIO()

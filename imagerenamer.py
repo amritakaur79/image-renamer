@@ -1,32 +1,23 @@
-import streamlit as st
+import gradio as gr
 from PIL import Image
 import os
 import io
-import re
-import torch
 import zipfile
+import torch
+import re
 from transformers import BlipProcessor, BlipForConditionalGeneration
 
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="AI T-Shirt Graphic Renamer", layout="centered")
-st.title("🧠 AI T-Shirt Graphic Renamer")
+# Load BLIP model once
+processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
 
-st.markdown("""
-Upload your **.png, .jpg, or .jpeg** T-shirt graphics below.  
-Then click **Generate** to let the AI rename your graphics and download a ZIP.
-""")
-
-# --- LOAD MODEL ---
-@st.cache_resource
-def load_blip():
-    processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
-    model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
-    return processor, model
-
-processor, model = load_blip()
-
-# --- CAPTION CLEANER ---
 STOPWORDS = {"a", "an", "the", "with", "and", "on", "in", "of", "at", "to", "by", "for", "from"}
+
+def generate_caption(image):
+    image = image.convert("RGB")
+    inputs = processor(image, return_tensors="pt")
+    out = model.generate(**inputs)
+    return processor.decode(out[0], skip_special_tokens=True)
 
 def clean_caption(caption, existing_names):
     words = re.findall(r'\w+', caption.lower())
@@ -41,52 +32,31 @@ def clean_caption(caption, existing_names):
     existing_names.add(final_name)
     return final_name
 
-# --- GENERATE CAPTION ---
-def generate_caption(image):
-    image = image.convert("RGB")
-    inputs = processor(image, return_tensors="pt")
-    out = model.generate(**inputs)
-    return processor.decode(out[0], skip_special_tokens=True)
+def process_images(images):
+    existing_names = set()
+    zip_buffer = io.BytesIO()
+    renamed_files = []
 
-# --- FILE UPLOADER ---
-uploaded_files = st.file_uploader(
-    "Upload your images here", 
-    type=["png", "jpg", "jpeg"], 
-    accept_multiple_files=True
+    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED) as zipf:
+        for image in images:
+            caption = generate_caption(image)
+            filename = clean_caption(caption, existing_names) + ".png"
+            img_bytes = io.BytesIO()
+            image.save(img_bytes, format="PNG")
+            zipf.writestr(filename, img_bytes.getvalue())
+            renamed_files.append((filename, image))
+
+    zip_buffer.seek(0)
+    return zip_buffer
+
+iface = gr.Interface(
+    fn=process_images,
+    inputs=gr.File(file_types=[".png", ".jpg", ".jpeg"], label="Upload T-Shirt Graphics", file_count="multiple", type="pil"),
+    outputs=gr.File(label="Download Renamed Zip"),
+    title="🧠 AI T-Shirt Graphic Renamer",
+    description="Upload multiple T-shirt graphic images. This app uses BLIP to analyze and rename each graphic with meaningful names, and returns a ZIP of the renamed files.",
+    allow_flagging="never"
 )
 
-# --- GENERATE BUTTON ---
-if uploaded_files:
-    if st.button("🚀 Generate Renamed Files"):
-        existing_names = set()
-        zip_buffer = io.BytesIO()
-        renamed_files = []
-
-        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED) as zipf:
-            for file in uploaded_files:
-                st.write(f"Processing: `{file.name}`")
-                try:
-                    img = Image.open(file)
-                    caption = generate_caption(img)
-                    new_filename = clean_caption(caption, existing_names)
-                    ext = os.path.splitext(file.name)[-1]
-                    final_filename = f"{new_filename}{ext}"
-
-                    img_byte_arr = io.BytesIO()
-                    img.save(img_byte_arr, format=img.format)
-                    zipf.writestr(final_filename, img_byte_arr.getvalue())
-                    renamed_files.append((file.name, final_filename))
-                except Exception as e:
-                    st.error(f"Failed to process `{file.name}`: {e}")
-
-        st.success("✅ Images renamed successfully!")
-        st.download_button(
-            label="📦 Download Renamed Images (ZIP)",
-            data=zip_buffer.getvalue(),
-            file_name="renamed_graphics.zip",
-            mime="application/zip"
-        )
-
-        st.subheader("📝 Preview:")
-        for old_name, new_name in renamed_files:
-            st.write(f"🖼️ `{old_name}` ➡️ `{new_name}`")
+if __name__ == "__main__":
+    iface.launch()

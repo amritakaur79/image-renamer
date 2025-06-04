@@ -5,67 +5,50 @@ from transformers import BlipProcessor, BlipForConditionalGeneration
 import io
 import zipfile
 import os
-import re
 
-# Load model once
+# Load model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
 model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").to(device)
 
-# Stopwords to remove from caption
-STOPWORDS = {"a", "an", "the", "with", "and", "on", "in", "of", "at", "to", "by", "for", "from"}
-
-# App UI
 st.set_page_config(page_title="AI Image Renamer")
 st.title("🧠 AI-Powered T-shirt Graphic Renamer")
-st.write("Upload your .png, .jpg, or .jpeg T-shirt graphics. AI will generate names and return a zip file with renamed files.")
+st.write("Upload your .png, .jpg, or .jpeg T-shirt designs. The AI will generate names and give you a zip file.")
 
 uploaded_files = st.file_uploader("Upload image files", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
 
 if uploaded_files and st.button("Generate & Download ZIP"):
     zip_buffer = io.BytesIO()
-    total = len(uploaded_files)
-    progress = st.progress(0, text="Starting...")
+    total_files = len(uploaded_files)
+    progress_bar = st.progress(0, text="Starting...")
 
     with zipfile.ZipFile(zip_buffer, "w") as zip_file:
         for i, uploaded_file in enumerate(uploaded_files):
-            # Open and resize image
-            image = Image.open(uploaded_file).convert("RGB")
-            image.thumbnail((512, 512))
+            image = Image.open(uploaded_file)
+            if image.mode != "RGB":
+                image = image.convert("RGB")
 
-            # Generate caption
             inputs = processor(images=image, return_tensors="pt").to(device)
-            with torch.no_grad():
-                output = model.generate(**inputs, max_length=20)
-            raw_caption = processor.decode(output[0], skip_special_tokens=True)
-
-            # Remove filler words and format filename
-            # Remove filler words and format filename
-            filtered_words = [
-                word for word in re.findall(r"\w+", raw_caption.lower())
-                if word not in STOPWORDS
-            ]
-            clean_caption = "_".join(filtered_words) or "image"
-            clean_caption = clean_caption[:20].rstrip("_")  # Trim to 20 characters
+            output = model.generate(**inputs)
+            caption = processor.decode(output[0], skip_special_tokens=True).replace(" ", "_")
 
             ext = os.path.splitext(uploaded_file.name)[1]
-            new_filename = f"{clean_caption}{ext}"
+            new_filename = f"{caption}{ext}"
 
-
-            # Save image in zip
             image_bytes = io.BytesIO()
             image.save(image_bytes, format=image.format or "PNG")
             zip_file.writestr(new_filename, image_bytes.getvalue())
 
-            # Update progress bar
-            percent = (i + 1) / total
-            progress.progress(percent, text=f"Processing {i + 1} of {total} images...")
+            # Update progress
+            progress = (i + 1) / total_files
+            progress_bar.progress(progress, text=f"Processing {i + 1} of {total_files} images...")
 
-    progress.empty()
+    progress_bar.empty()  # Remove progress bar after completion
     zip_buffer.seek(0)
-    st.success("✅ All files processed successfully!")
+
+    st.success("All files processed successfully!")
     st.download_button(
-        label="📥 Download ZIP with Renamed Images",
+        label="📥 Download Renamed Images ZIP",
         data=zip_buffer,
         file_name="renamed_images.zip",
         mime="application/zip"

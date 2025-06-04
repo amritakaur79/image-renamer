@@ -1,16 +1,15 @@
 import streamlit as st
 from PIL import Image
-import torch
 from transformers import BlipProcessor, BlipForConditionalGeneration
+import torch
 import io
 import zipfile
 import os
 import re
 
-# Load model
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# Load model WITHOUT `.to(device)` to avoid NotImplementedError
 processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
-model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").to(device)
+model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
 
 # Stopwords to clean from captions
 STOPWORDS = {"a", "an", "the", "with", "and", "on", "in", "of", "at", "to", "by", "for", "from"}
@@ -31,14 +30,14 @@ if uploaded_files and st.button("Generate & Download ZIP"):
         for i, uploaded_file in enumerate(uploaded_files):
             # Load original image and keep it intact
             original_image = Image.open(uploaded_file)
-            
+
             # Resize COPY for AI captioning
             resized_image = original_image.copy()
             resized_image = resized_image.convert("RGB")
             resized_image.thumbnail((512, 512))
 
             # Caption generation
-            inputs = processor(images=resized_image, return_tensors="pt").to(device)
+            inputs = processor(images=resized_image, return_tensors="pt")
             with torch.no_grad():
                 output = model.generate(**inputs, max_length=20)
             raw_caption = processor.decode(output[0], skip_special_tokens=True)
@@ -53,7 +52,7 @@ if uploaded_files and st.button("Generate & Download ZIP"):
             ext = os.path.splitext(uploaded_file.name)[1]
             new_filename = f"{clean_caption}{ext}"
 
-            # Save original image (with alpha preserved if present)
+            # Save original image (preserving transparency)
             image_bytes = io.BytesIO()
             original_image.save(image_bytes, format=original_image.format or "PNG")
             zip_file.writestr(new_filename, image_bytes.getvalue())

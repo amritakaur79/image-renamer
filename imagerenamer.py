@@ -1,62 +1,44 @@
-import gradio as gr
+import streamlit as st
 from PIL import Image
-import os
+import torch
+from transformers import BlipProcessor, BlipForConditionalGeneration
 import io
 import zipfile
-import torch
-import re
-from transformers import BlipProcessor, BlipForConditionalGeneration
+import os
 
-# Load BLIP model once
+# Load model
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
-model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
+model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").to(device)
 
-STOPWORDS = {"a", "an", "the", "with", "and", "on", "in", "of", "at", "to", "by", "for", "from"}
+st.set_page_config(page_title="AI Image Renamer")
+st.title("🧠 AI-Powered T-shirt Graphic Renamer")
+st.write("Upload your .png, .jpg, or .jpeg T-shirt designs. The AI will generate names and give you a zip file.")
 
-def generate_caption(image):
-    image = image.convert("RGB")
-    inputs = processor(image, return_tensors="pt")
-    out = model.generate(**inputs)
-    return processor.decode(out[0], skip_special_tokens=True)
+uploaded_files = st.file_uploader("Upload image files", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
 
-def clean_caption(caption, existing_names):
-    words = re.findall(r'\w+', caption.lower())
-    filtered = [w for w in words if w not in STOPWORDS]
-    base_name = "_".join(filtered) or "graphic"
-    
-    final_name = base_name
-    i = 1
-    while final_name in existing_names:
-        final_name = f"{base_name}_{i}"
-        i += 1
-    existing_names.add(final_name)
-    return final_name
-
-def process_images(images):
-    existing_names = set()
+if uploaded_files and st.button("Generate & Download ZIP"):
     zip_buffer = io.BytesIO()
-    renamed_files = []
+    with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+        for uploaded_file in uploaded_files:
+            image = Image.open(uploaded_file)
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            inputs = processor(images=image, return_tensors="pt").to(device)
+            output = model.generate(**inputs)
+            caption = processor.decode(output[0], skip_special_tokens=True).replace(" ", "_")
 
-    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED) as zipf:
-        for image in images:
-            caption = generate_caption(image)
-            filename = clean_caption(caption, existing_names) + ".png"
-            img_bytes = io.BytesIO()
-            image.save(img_bytes, format="PNG")
-            zipf.writestr(filename, img_bytes.getvalue())
-            renamed_files.append((filename, image))
+            ext = os.path.splitext(uploaded_file.name)[1]
+            new_filename = f"{caption}{ext}"
+
+            image_bytes = io.BytesIO()
+            image.save(image_bytes, format=image.format or "PNG")
+            zip_file.writestr(new_filename, image_bytes.getvalue())
 
     zip_buffer.seek(0)
-    return zip_buffer
-
-iface = gr.Interface(
-    fn=process_images,
-    inputs=gr.File(file_types=[".png", ".jpg", ".jpeg"], label="Upload T-Shirt Graphics", file_count="multiple", type="pil"),
-    outputs=gr.File(label="Download Renamed Zip"),
-    title="🧠 AI T-Shirt Graphic Renamer",
-    description="Upload multiple T-shirt graphic images. This app uses BLIP to analyze and rename each graphic with meaningful names, and returns a ZIP of the renamed files.",
-    allow_flagging="never"
-)
-
-if __name__ == "__main__":
-    iface.launch()
+    st.download_button(
+        label="📥 Download Renamed Images ZIP",
+        data=zip_buffer,
+        file_name="renamed_images.zip",
+        mime="application/zip"
+    )

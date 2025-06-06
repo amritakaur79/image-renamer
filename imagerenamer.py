@@ -1,10 +1,11 @@
+import os
+os.environ["STREAMLIT_WATCHER_TYPE"] = "none"
 import streamlit as st
 from PIL import Image
 import torch
 from transformers import BlipProcessor, BlipForConditionalGeneration
 import io
 import zipfile
-import os
 import re
 
 # Load model once
